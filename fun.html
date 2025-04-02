@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Survivor.io Game</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #2b2d2f;
+            font-family: Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            background-color: #222;
+            margin: 0 auto;
+            border: 1px solid #fff;
+        }
+
+        .info {
+            color: white;
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 20px;
+        }
+
+        #pauseButton, #fullscreenButton, #toggleInfoButton {
+            position: absolute;
+            right: 20px;
+            font-size: 20px;
+            padding: 10px;
+            background-color: #444;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.3s;
+            margin-top: 10px;
+        }
+
+        #pauseButton {
+            top: 20px;
+        }
+
+        #fullscreenButton {
+            top: 80px;
+        }
+
+        #toggleInfoButton {
+            top: 140px;
+        }
+
+        #pauseButton:hover, #fullscreenButton:hover, #toggleInfoButton:hover {
+            background-color: #555;
+            transform: scale(1.1);
+        }
+
+        #upgradeMenu {
+            position: absolute;
+            top: 200px;
+            right: 20px;
+            background-color: #444;
+            color: white;
+            padding: 10px;
+            display: none;
+        }
+
+        #upgradeMenu button {
+            display: block;
+            margin: 5px 0;
+            padding: 10px;
+            background-color: #555;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.3s;
+        }
+
+        #upgradeMenu button:hover {
+            background-color: #666;
+            transform: scale(1.1);
+        }
+
+        .transparent {
+            background-color: rgba(68, 68, 68, 0.5);
+        }
+
+        #upgradeLevels {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            background-color: #444;
+            color: white;
+            text-align: center;
+            padding: 10px;
+            font-size: 20px;
+        }
+
+        #timer {
+            position: fixed;
+            bottom: 40px;
+            width: 100%;
+            background-color: #444;
+            color: white;
+            text-align: center;
+            padding: 10px;
+            font-size: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="info" id="info">
+        <p>Health: <span id="health">100</span></p>
+        <p>Score: <span id="score">0</span></p>
+        <p>XP: <span id="xp">0</span></p>
+    </div>
+    <button id="pauseButton">Pause</button>
+    <button id="fullscreenButton">Full Screen</button>
+    <button id="toggleInfoButton">Hide Info</button>
+    <div id="upgradeMenu">
+        <button id="upgradeDamage">Upgrade Damage</button>
+        <button id="upgradeHealth">Upgrade Health</button>
+    </div>
+    <canvas id="gameCanvas" width="800" height="500"></canvas>
+    <div id="timer">Time: <span id="time">0</span> seconds</div>
+    <div id="upgradeLevels">
+        Damage Level: <span id="damageLevel">1</span> | Health Level: <span id="healthLevel">1</span>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let player = {
+            x: 100,
+            y: 100,
+            radius: 20,
+            speed: 5,
+            dx: 0,
+            dy: 0,
+            health: 100,
+            maxHealth: 100,
+            regenRate: 0.005, // Slower health regen per second
+            damage: 10
+        };
+
+        let bullets = [];
+        let enemies = [];
+        let score = 0;
+        let xp = 0;
+        let isPaused = false;
+        let enemyHealthMultiplier = 1;
+        let damageLevel = 1;
+        let healthLevel = 1;
+        let time = 0;
+        let enemySpawnInterval = 3000; // Initial spawn interval in milliseconds
+
+        // Key press listeners
+        const keys = {};
+        window.addEventListener('keydown', (e) => {
+            keys[e.code] = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            keys[e.code] = false;
+        });
+
+        // Get mouse position relative to the canvas
+        function getMousePos(canvas, evt) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: evt.clientX - rect.left,
+                y: evt.clientY - rect.top
+            };
+        }
+
+        // Bullet mechanics
+        function shootBullet(mouseX, mouseY) {
+            const angle = Math.atan2(mouseY - player.y, mouseX - player.x);
+            const bullet = {
+                x: player.x,
+                y: player.y,
+                radius: 5,
+                speed: 10,
+                dx: Math.cos(angle),
+                dy: Math.sin(angle),
+                damage: player.damage
+            };
+            bullets.push(bullet);
+        }
+
+        // Update bullets and check for collisions with enemies
+        function updateBullets() {
+            for (let i = 0; i < bullets.length; i++) {
+                const bullet = bullets[i];
+                bullet.x += bullet.dx * bullet.speed;
+                bullet.y += bullet.dy * bullet.speed;
+
+                // Check for collisions with enemies
+                for (let j = 0; j < enemies.length; j++) {
+                    const enemy = enemies[j];
+                    const dx = bullet.x - enemy.x;
+                    const dy = bullet.y - enemy.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < bullet.radius + enemy.radius) {
+                        enemy.health -= bullet.damage;
+                        if (enemy.health <= 0) {
+                            enemies.splice(j, 1);
+                            score += 10;
+                            xp += 5; // Gain XP for killing an enemy
+                            document.getElementById('score').textContent = score;
+                            document.getElementById('xp').textContent = xp;
+
+                            // Show upgrade menu if XP is 20 or more
+                            if (xp >= 20) {
+                                document.getElementById('upgradeMenu').style.display = 'block';
+                            }
+                        }
+                        bullets.splice(i, 1); // Remove bullet
+                        break;
+                    }
+                }
+
+                // Remove bullets that go out of bounds
+                if (bullet.x < 0 || bullet.x > canvas.width || bullet.y < 0 || bullet.y > canvas.height) {
+                    bullets.splice(i, 1);
+                }
+            }
+        }
+
+        // Update the player's position based on key presses
+        function movePlayer() {
+            if (keys['ArrowUp'] || keys['KeyW']) {
+                player.dy = -player.speed;
+            } else if (keys['ArrowDown'] || keys['KeyS']) {
+                player.dy = player.speed;
+            } else {
+                player.dy = 0;
+            }
+
+            if (keys['ArrowLeft'] || keys['KeyA']) {
+                player.dx = -player.speed;
+            } else if (keys['ArrowRight'] || keys['KeyD']) {
+                player.dx = player.speed;
+            } else {
+                player.dx = 0;
+            }
+
+            player.x += player.dx;
+            player.y += player.dy;
+
+            // Keep player within canvas bounds
+            if (player.x < 0) player.x = 0;
+            if (player.x > canvas.width - player.radius) player.x = canvas.width - player.radius;
+            if (player.y < 0) player.y = 0;
+            if (player.y > canvas.height - player.radius) player.y = canvas.height - player.radius;
+        }
+
+        // Spawn enemies at random positions around the edges
+        function spawnEnemy() {
+            const edge = Math.floor(Math.random() * 4);
+            let x, y;
+
+            if (edge === 0) { // Top edge
+                x = Math.random() * canvas.width;
+                y = 0;
+            } else if (edge === 1) { // Right edge
+                x = canvas.width;
+                y = Math.random() * canvas.height;
+            } else if (edge === 2) { // Bottom edge
+                x = Math.random() * canvas.width;
+                y = canvas.height;
+            } else { // Left edge
+                x = 0;
+                y = Math.random() * canvas.height;
+            }
+
+            const enemy = {
+                x: x,
+                y: y,
+                radius: 15,
+                speed: 5 + Math.random(), // Slower speed
+                dx: 0,
+                dy: 0,
+                health: 30 * enemyHealthMultiplier,
+                maxHealth: 30 * enemyHealthMultiplier,
+                lastDamageTime: 0 // Track the last time this enemy damaged the player
+            };
+            enemies.push(enemy);
+        }
+
+        // Update enemies' positions (moving toward player)
+        function moveEnemies() {
+            for (let i = 0; i < enemies.length; i++) {
+                const enemy = enemies[i];
+                const dx = player.x - enemy.x;
+                const dy = player.y - enemy.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                enemy.dx = (dx / distance) * enemy.speed;
+                enemy.dy = (dy / distance) * enemy.speed;
+
+                enemy.x += enemy.dx;
+                enemy.y += enemy.dy;
+            }
+        }
+
+        // Detect collision between player and enemies
+        function checkCollisions() {
+            const currentTime = Date.now();
+            for (let i = 0; i < enemies.length; i++) {
+                const enemy = enemies[i];
+                const dx = player.x - enemy.x;
+                const dy = player.y - enemy.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < player.radius + enemy.radius) {
+                    if (currentTime - enemy.lastDamageTime > 250) { // Damage the player every 250ms
+                        player.health -= 1; // Reduce player's health by 1
+                        document.getElementById('health').textContent = Math.round(player.health);
+                        enemy.lastDamageTime = currentTime;
+
+                        if (player.health <= 0) {
+                            alert("Game Over!");
+                            player.health = player.maxHealth;
+                            score = 0;
+                            xp = 0;
+                            enemies = [];
+                            bullets = [];
+                            document.getElementById('score').textContent = score;
+                            document.getElementById('health').textContent = player.health;
+                            document.getElementById('xp').textContent = xp;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Health regeneration
+        function regenerateHealth() {
+            if (player.health < player.maxHealth) {
+                player.health += player.regenRate;
+                document.getElementById('health').textContent = Math.round(player.health);
+            }
+        }
+
+        // Draw the player, bullets, enemies, and score
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw player
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+            ctx.fillStyle = 'blue';
+            ctx.fill();
+            ctx.closePath();
+
+            // Draw bullets
+            for (let i = 0; i < bullets.length; i++) {
+                const bullet = bullets[i];
+                ctx.beginPath();
+                ctx.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2);
+                ctx.fillStyle = 'yellow';
+                ctx.fill();
+                ctx.closePath();
+            }
+
+            // Draw enemies
+            for (let i = 0; i < enemies.length; i++) {
+                const enemy = enemies[i];
+                ctx.beginPath();
+                ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
+                ctx.fillStyle = 'green';
+                ctx.fill();
+                ctx.closePath();
+
+                // Draw enemy health bar
+                ctx.fillStyle = 'black';
+                ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10, enemy.radius * 2, 5);
+                ctx.fillStyle = 'red';
+                ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10, (enemy.health / enemy.maxHealth) * enemy.radius * 2, 5);
+            }
+
+            // Update health and score on screen
+            document.getElementById('health').textContent = Math.round(player.health);
+            document.getElementById('score').textContent = score;
+        }
+
+        // Game loop
+        function update() {
+            if (isPaused) return;
+
+            movePlayer();
+            updateBullets();
+            moveEnemies();
+            checkCollisions();
+            regenerateHealth();
+            draw();
+            requestAnimationFrame(update);
+        }
+
+        // Timer
+        setInterval(() => {
+            if (!isPaused) {
+                time += 1;
+                document.getElementById('time').textContent = time;
+            }
+        }, 1000);
+
+        // Spawn an enemy at increasing intervals
+        function spawnEnemyInterval() {
+            if (!isPaused) {
+                spawnEnemy();
+                enemySpawnInterval = Math.max(700, enemySpawnInterval - 50); // Decrease spawn interval by 10 milliseconds each time, but not below 1000ms
+                setTimeout(spawnEnemyInterval, enemySpawnInterval);
+            }
+        }
+        setTimeout(spawnEnemyInterval, enemySpawnInterval);
+
+        // Increase enemy health multiplier every 30 seconds
+        setInterval(() => {
+            enemyHealthMultiplier += 0.1;
+        }, 10000);
+
+        // Pause/Play Button
+        document.getElementById('pauseButton').addEventListener('click', () => {
+            isPaused = !isPaused;
+            document.getElementById('pauseButton').textContent = isPaused ? 'Play' : 'Pause';
+            if (!isPaused) {
+                update();
+            }
+        });
+
+        // Fullscreen Button
+        document.getElementById('fullscreenButton').addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+                document.getElementById('fullscreenButton').classList.add('transparent');
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight - document.getElementById('upgradeLevels').offsetHeight;
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                    document.getElementById('fullscreenButton').classList.remove('transparent');
+                    canvas.width = 800;
+                    canvas.height = 500;
+                }
+            }
+        });
+
+        // Toggle Info Button
+        document.getElementById('toggleInfoButton').addEventListener('click', () => {
+            const info = document.getElementById('info');
+            if (info.style.display === 'none') {
+                info.style.display = 'block';
+                document.getElementById('toggleInfoButton').textContent = 'Hide Info';
+            } else {
+                info.style.display = 'none';
+                document.getElementById('toggleInfoButton').textContent = 'Show Info';
+            }
+        });
+
+        // Listen for mouse clicks to shoot
+        canvas.addEventListener('click', (e) => {
+            const mousePos = getMousePos(canvas, e);
+            shootBullet(mousePos.x, mousePos.y);
+        });
+
+        // Upgrade menu buttons
+        document.getElementById('upgradeDamage').addEventListener('click', () => {
+            if (xp >= 20) {
+                xp -= 20;
+                player.damage += 5;
+                damageLevel += 1;
+                document.getElementById('xp').textContent = xp;
+                document.getElementById('damageLevel').textContent = damageLevel;
+                document.getElementById('upgradeMenu').style.display = 'none';
+            }
+        });
+
+        document.getElementById('upgradeHealth').addEventListener('click', () => {
+            if (xp >= 20) {
+                xp -= 20;
+                player.maxHealth += 10;
+                player.health = player.maxHealth;
+                healthLevel += 1;
+                document.getElementById('xp').textContent = xp;
+                document.getElementById('health').textContent = player.health;
+                document.getElementById('healthLevel').textContent = healthLevel;
+                document.getElementById('upgradeMenu').style.display = 'none';
+            }
+        });
+
+        update(); // Start game loop
+    </script>
+</body>
+</html>
